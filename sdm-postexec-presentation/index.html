@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SDM &amp; PostExec — OP Labs Engineering</title>
+<style>
+  :root{
+    --bg:#0b0e14; --bg2:#11161f; --panel:#161c27; --panel2:#1c2433;
+    --ink:#e7ecf3; --muted:#94a3b8; --dim:#64748b;
+    --red:#ff3f56; --red2:#ff6b7d; --amber:#ffb454; --green:#43d39e; --blue:#5cc6ff; --violet:#b18cff;
+    --line:#27303f; --code:#0e1320;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+  #deck{position:fixed;inset:0}
+  .slide{
+    position:absolute;inset:0;display:none;flex-direction:column;
+    padding:54px 72px 70px;opacity:0;transition:opacity .25s ease;
+    overflow:auto;
+  }
+  .slide.active{display:flex;opacity:1}
+  .slide h1{font-size:50px;line-height:1.08;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+  .slide h2{font-size:33px;margin:0 0 22px;font-weight:750;letter-spacing:-.01em}
+  .slide h2 .k{color:var(--red);font-family:var(--mono);font-size:24px;margin-right:12px}
+  .kicker{color:var(--red);font-family:var(--mono);font-size:14px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:14px;font-weight:600}
+  p{font-size:19px;line-height:1.55;color:var(--ink)}
+  .lead{font-size:24px;line-height:1.5;color:var(--muted);max-width:1000px}
+  ul{margin:6px 0;padding-left:0;list-style:none}
+  li{font-size:18.5px;line-height:1.5;margin:9px 0;padding-left:26px;position:relative;color:var(--ink)}
+  li::before{content:"▸";position:absolute;left:0;color:var(--red);font-size:16px;top:1px}
+  li .muted{color:var(--muted)}
+  code{font-family:var(--mono);font-size:.86em;background:var(--code);color:var(--red2);padding:2px 7px;border-radius:5px;border:1px solid var(--line)}
+  b,strong{color:#fff;font-weight:700}
+  .em{color:var(--amber)}
+  .ok{color:var(--green)}
+  .grid{display:grid;gap:20px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr 1fr}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 24px}
+  .card h3{margin:0 0 10px;font-size:20px;font-weight:700}
+  .card.red{border-color:rgba(255,63,86,.4);background:linear-gradient(180deg,rgba(255,63,86,.07),var(--panel))}
+  .card.green{border-color:rgba(67,211,158,.35);background:linear-gradient(180deg,rgba(67,211,158,.06),var(--panel))}
+  .card.blue{border-color:rgba(92,198,255,.35)}
+  .card .big{font-size:42px;font-weight:800;font-family:var(--mono);letter-spacing:-.02em}
+  table{border-collapse:collapse;width:100%;font-size:16.5px}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--red);font-weight:600;font-family:var(--mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+  td code{font-size:14px}
+  .pill{display:inline-block;font-family:var(--mono);font-size:12px;padding:3px 10px;border-radius:20px;border:1px solid var(--line);color:var(--muted);background:var(--code)}
+  .pill.red{color:var(--red2);border-color:rgba(255,63,86,.45)}
+  .pill.green{color:var(--green);border-color:rgba(67,211,158,.45)}
+  .pill.amber{color:var(--amber);border-color:rgba(255,180,84,.45)}
+  .pill.blue{color:var(--blue);border-color:rgba(92,198,255,.45)}
+  pre{font-family:var(--mono);font-size:15px;line-height:1.5;background:var(--code);border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow:auto;color:#cdd6e4;margin:8px 0}
+  pre .c{color:var(--dim)}
+  pre .r{color:var(--red2)}
+  pre .g{color:var(--green)}
+  pre .b{color:var(--blue)}
+  pre .a{color:var(--amber)}
+  .flow{display:flex;align-items:center;gap:0;flex-wrap:wrap;font-family:var(--mono);font-size:15px}
+  .flow .node{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 14px;margin:5px 0}
+  .flow .arr{color:var(--red);padding:0 10px;font-size:18px}
+  .stack{display:flex;flex-direction:column;gap:12px}
+  .layer{border:1px solid var(--line);border-radius:12px;padding:14px 18px;background:var(--panel);position:relative}
+  .layer .tag{position:absolute;top:-10px;left:16px;background:var(--bg);padding:0 8px;font-family:var(--mono);font-size:12px;color:var(--red);letter-spacing:.08em}
+  .layer .files{font-family:var(--mono);font-size:13.5px;color:var(--muted);margin-top:4px}
+  .down{text-align:center;color:var(--red);font-size:20px;line-height:.4}
+  footer{position:fixed;bottom:0;left:0;right:0;height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-family:var(--mono);font-size:12.5px;color:var(--dim);border-top:1px solid var(--line);background:linear-gradient(0deg,var(--bg),transparent)}
+  footer .dot{color:var(--red)}
+  .progress{position:fixed;top:0;left:0;height:3px;background:var(--red);transition:width .25s;z-index:10}
+  .center{justify-content:center;align-items:flex-start}
+  .title-wrap{display:flex;flex-direction:column;justify-content:center;height:100%}
+  .title-wrap .sub{font-size:23px;color:var(--muted);margin-top:18px;max-width:900px;line-height:1.5}
+  .meta{margin-top:40px;font-family:var(--mono);font-size:14px;color:var(--dim);display:flex;gap:28px;flex-wrap:wrap}
+  .meta b{color:var(--muted);font-weight:600}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:36px}
+  .note{font-size:15px;color:var(--muted);font-style:italic;margin-top:10px}
+  .badge-row{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+  .hl{background:rgba(255,180,84,.14);border-radius:4px;padding:0 4px}
+  .small li{font-size:16.5px;margin:6px 0}
+  .tiny{font-size:14px;color:var(--dim);font-family:var(--mono)}
+  .help{position:fixed;bottom:54px;right:18px;font-family:var(--mono);font-size:11px;color:var(--dim);opacity:.7}
+  h2 + .lead{margin-top:-8px}
+  .split-num{font-family:var(--mono);color:var(--red);font-weight:700}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div id="deck">
+
+<!-- 1 TITLE -->
+<section class="slide center">
+  <div class="title-wrap">
+    <div class="kicker">OP Labs · Engineering Knowledge Share</div>
+    <h1>Sequencer-Defined Metering<br><span style="color:var(--red)">&amp; the PostExec mechanism</span></h1>
+    <div class="sub">What SDM is, how the <code>0x7D</code> transaction works, what landed on <code>develop</code>, which hardfork it ships with, how it's tested, and what's next.</div>
+    <div class="meta">
+      <span><b>Presenter</b> Anton Evangelatov</span>
+      <span><b>Date</b> 2026-06-15</span>
+      <span><b>Status</b> code-complete on <code>develop</code>, pre-hardfork</span>
+      <span><b>Ships with</b> Lagoon</span>
+    </div>
+  </div>
+</section>
+
+<!-- 2 WHY -->
+<section class="slide">
+  <div class="kicker">The problem</div>
+  <h2>Baseline EVM overcharges for warm state</h2>
+  <div class="two-col">
+    <div>
+      <p>EIP-2929 prices the <b>first</b> access to an account or storage slot as <em class="em">cold</em> — and every later access in the <b>same transaction</b> as <em class="ok">warm</em>.</p>
+      <p>But warmth <b>resets at each transaction boundary.</b> Tx&nbsp;B pays full cold price for state that tx&nbsp;A already loaded into memory earlier in the <b>same block</b>.</p>
+      <p>The execution client did the I/O <b>once</b>. Charging the second caller as if it were cold is consensus-correct but <span class="hl">economically wasteful</span>.</p>
+    </div>
+    <div class="card">
+      <h3>Cold vs warm (EIP-2929)</h3>
+      <table>
+        <tr><th>Access</th><th>Cold</th><th>Warm</th><th>Δ</th></tr>
+        <tr><td>Account</td><td>2600</td><td>100</td><td class="em">2500</td></tr>
+        <tr><td>SLOAD</td><td>2100</td><td>100</td><td class="em">2000</td></tr>
+        <tr><td>SSTORE</td><td>2200</td><td>100</td><td class="em">2100</td></tr>
+      </table>
+      <p class="note">SDM rebates exactly this differential — but <b>across transactions within a block</b>, which the EVM never does on its own.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 3 WHAT IS SDM -->
+<section class="slide">
+  <div class="kicker">Definition</div>
+  <h2>SDM = Sequencer-Defined Metering</h2>
+  <p class="lead">An <b>in-protocol, consensus-critical</b> mechanism for sequencer-defined per-tx gas refunds. The first policy — <b>block-level warming rebates</b> (<a style="color:var(--blue)">EIP-7863</a>) — rebates the EIP-2929 cold→warm differential when a tx touches state an earlier tx in the same block already warmed.</p>
+  <p class="note">Now specified in the Lagoon upgrade: <code>specs/protocol/lagoon/post-exec.md</code> (the generic envelope) + <code>sdm.md</code> (the version-1 schema). SDM is the <b>only</b> defined payload schema today.</p>
+  <div class="grid g3" style="margin-top:18px">
+    <div class="card">
+      <h3>Sequencer-defined</h3>
+      <p style="font-size:17px">The sequencer <b>computes &amp; commits</b> the rebates (in the <code>0x7D</code> tx). Verifiers re-derive and canonicalize against that commitment.</p>
+    </div>
+    <div class="card">
+      <h3>Inspectable, not re-derived</h3>
+      <p style="font-size:17px">The consensus payload is just <code>{index, gasRefund}</code> — <b>no provenance</b>. Verifiers apply the <em>claimed</em> value. Off-chain <b>replay</b> re-derives warming &amp; attributes each rebate to its first-warming tx as a sanity check.</p>
+    </div>
+    <div class="card">
+      <h3>Not EIP-3529 capped</h3>
+      <p style="font-size:17px">It's an <b>adjustment of real work done</b>, not a discretionary refund — so the "≤ 20% of gas used" cap does <span class="em">not</span> apply.</p>
+    </div>
+  </div>
+  <div class="card blue" style="margin-top:20px">
+    <p style="margin:0;font-size:18px"><b class="ok">Acceptance goal (DoD):</b> a sequencer can define and apply a custom rebate formula at block production — e.g. a block-level warming discount for Uniswap — running in production on Unichain, with consensus-level verification code living in the monorepo.</p>
+  </div>
+</section>
+
+<!-- 4 REBATE RULES -->
+<section class="slide">
+  <div class="kicker">The rules</div>
+  <h2>Who gets rebated, and how much</h2>
+  <div class="two-col">
+    <div>
+      <table>
+        <tr><th>Warm touch</th><th>Rebate</th><th>When</th></tr>
+        <tr><td>Account</td><td class="em">2500</td><td>Later tx reads/writes an address an earlier tx touched</td></tr>
+        <tr><td>SLOAD</td><td class="em">2000</td><td>Later tx reads a slot already read/written this block</td></tr>
+        <tr><td>SSTORE</td><td class="em">2100</td><td>Later tx writes a slot already read/written this block</td></tr>
+      </table>
+      <p class="tiny" style="margin-top:14px">rust/alloy-op-evm/src/post_exec/inspector.rs</p>
+    </div>
+    <div>
+      <ul class="small">
+        <li><b>Normal user txs</b> claim · <b>deposits</b> warm but <span class="em">never claim</span> · the <b>0x7D tx</b> never claims</li>
+        <li><b>Intrinsic warmth excluded</b> — beneficiary, precompiles, access-list &amp; 7702 authorities are already priced warm</li>
+        <li><b>First-touch provenance</b> — first tx to touch a slot owns it; dedup per tx</li>
+      </ul>
+      <div class="card amber" style="margin-top:10px;border-color:rgba(255,180,84,.4);padding:14px 18px">
+        <h3 style="font-size:16px;margin-bottom:6px">Spec validity rules (version&nbsp;1) — block is invalid if:</h3>
+        <ul class="small" style="margin:0">
+          <li><code>gasRefundEntries</code> is empty <span class="muted">(no refunds → no 0x7D tx at all)</span></li>
+          <li>any entry has <code>gasRefund == 0</code></li>
+          <li>entries not <b>strictly increasing</b> by <code>index</code></li>
+          <li>an <code>index</code> targets a non-standard tx, or <code>refund &gt; evmGasUsed</code></li>
+        </ul>
+      </div>
+      <p class="note" style="margin-top:8px">Each refunded tx's JSON-RPC receipt gains <code>opGasRefund</code> (not in the RLP receipt / trie; <code>null</code> when inactive or no refund).</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 SETTLEMENT -->
+<section class="slide">
+  <div class="kicker">Conservation of ETH</div>
+  <h2>Where the rebate money comes from</h2>
+  <p class="lead">When SDM subtracts <code>Δ</code> gas from a tx, the sender is credited and <b>four recipients are debited</b> — and they sum exactly. Total supply is preserved.</p>
+  <div class="two-col" style="margin-top:10px">
+    <pre><span class="c">// per refunding tx, applied AFTER EVM execution</span>
+gas_delta         = raw_gas - canonical_gas
+base_fee_delta    = gas_delta × basefee
+beneficiary_delta = gas_delta × (eff_price - basefee)
+operator_fee_delta = opfee(raw) - opfee(canonical)
+
+<span class="g">sender_credit</span> = gas_delta × eff_price + operator_fee_delta
+<span class="r">=</span> beneficiary_delta + base_fee_delta + operator_fee_delta</pre>
+    <div>
+      <div class="card">
+        <h3>When &amp; how it settles</h3>
+        <p style="font-size:16.5px">EVM runs with full cold pricing untouched. Settlement applies <b>after the tx's EVM frame, before its state delta commits</b> — <b>atomic with that tx</b>, no separate receipt. Layers onto an <b>unmodified EVM</b>. <span class="muted">The L1 fee vault is not adjusted (L1 cost is independent of L2 gas).</span></p>
+      </div>
+      <div class="card red" style="margin-top:14px">
+        <h3>Underflow guard</h3>
+        <p style="font-size:17px">If any recipient can't cover its debit → <code>PostExecSettlementUnderflow</code> and the block <b>fails</b>. (In practice they already collected the fees being refunded.)</p>
+      </div>
+    </div>
+  </div>
+  <p class="tiny" style="margin-top:6px">rust/alloy-op-evm/src/block/mod.rs — post_exec_settlement_deltas / apply_post_exec_refund_to_state</p>
+</section>
+
+<!-- 6 TWO-LAYER SPLIT -->
+<section class="slide">
+  <div class="kicker">The single most important concept</div>
+  <h2>Two layers: PostExec (mechanism) vs SDM (feature)</h2>
+  <div class="two-col">
+    <div class="card blue">
+      <h3><span class="pill blue">mechanism</span> PostExec*</h3>
+      <p style="font-size:17px">A <b>generic, feature-agnostic transport</b> for block-level post-execution data.</p>
+      <ul class="small">
+        <li>Synthetic tx type <code>0x7D</code> + versioned <code>PostExecPayload</code></li>
+        <li>Executor modes: Disabled / Produce / Verify / Invalid</li>
+        <li><code>debug_replaySDMBlock</code> RPC + <code>post-exec-replay</code> crate</li>
+      </ul>
+    </div>
+    <div class="card red">
+      <h3><span class="pill red">feature</span> SDM*</h3>
+      <p style="font-size:17px">Today's <b>only consumer</b> of the PostExec mechanism: the warming-refund computation.</p>
+      <ul class="small">
+        <li><code>SDMWarmingInspector</code>, <code>SDMGasEntry</code>, <code>WarmingRefundKind</code></li>
+        <li>The opt-in toggle &amp; admin RPCs</li>
+        <li><code>op-acceptance-tests/tests/sdm/</code> tooling</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <p style="margin:0;font-size:18px"><b>The spec formalizes exactly this split:</b> <code>post-exec.md</code> defines the generic <b>envelope</b> (tx type, encoding, structural rules) and is schema-agnostic; <code>sdm.md</code> defines <b>schema version 1</b>. A future policy adds a new <code>version</code> and its own doc — <b>without touching SDM</b>. Rule of thumb: envelope/modes/replay → <code>PostExec*</code>; warming-specific → <code>SDM*</code>.</p>
+  </div>
+</section>
+
+<!-- 7 ARCHITECTURE -->
+<section class="slide">
+  <div class="kicker">Architecture</div>
+  <h2>The stack, top to bottom</h2>
+  <div class="stack">
+    <div class="layer"><span class="tag">consensus types</span>
+      <b>op-alloy</b> — <code>POST_EXEC_TX_TYPE_ID = 0x7D</code>, <code>PostExecPayload</code>, <code>TxPostExec</code>, <code>OpTxEnvelope::PostExec</code>
+      <div class="files">rust/op-alloy/crates/consensus/src/post_exec.rs · transaction/envelope.rs</div>
+    </div>
+    <div class="down">▼</div>
+    <div class="layer"><span class="tag">executor + inspector</span>
+      <b>alloy-op-evm</b> — <code>SDMWarmingInspector</code>, <code>PostExecCompositeInspector</code>, <code>PostExecMode</code> state machine, settlement math
+      <div class="files">rust/alloy-op-evm/src/post_exec/inspector.rs · src/block/mod.rs</div>
+    </div>
+    <div class="down">▼</div>
+    <div class="layer"><span class="tag">EL integration &amp; build</span>
+      <b>op-reth</b> — <code>ConfigurePostExecEvm</code>, payload builder appends <code>0x7D</code>, opt-in flag + admin RPC
+      <div class="files">rust/op-reth/crates/{evm,payload,rpc}</div>
+    </div>
+    <div class="down">▼</div>
+    <div class="layer" style="border-style:dashed;border-color:rgba(255,180,84,.45)"><span class="tag" style="color:var(--amber)">streaming build — test-only · subblocks is the production path</span>
+      <b>op-rbuilder + rollup-boost</b> — flashblocks materialization of the trailing <code>0x7D</code>
+      <div class="files">rust/op-rbuilder · rust/rollup-boost</div>
+    </div>
+    <div class="down">▼</div>
+    <div class="layer"><span class="tag">derivation &amp; proofs</span>
+      <b>op-node / kona-node</b> — <code>IsSDM</code> gate accepts <code>0x7D</code> in batches &nbsp;·&nbsp; <b>kona</b> proof executor validates them
+      <div class="files">op-node/rollup/{toggles,batches}.go · rust/kona/crates/proof/executor/src/builder/core.rs</div>
+    </div>
+    <div class="down">▼</div>
+    <div class="layer"><span class="tag">operator &amp; test tooling</span>
+      <b>op-chain-ops/sdmreplay</b> (Go CLI) · <b>op-acceptance-tests/tests/sdm</b> · devstack flag plumbing
+    </div>
+  </div>
+</section>
+
+<!-- 8 THE 0x7D TX -->
+<section class="slide">
+  <div class="kicker">Wire format</div>
+  <h2>The <code>0x7D</code> transaction</h2>
+  <div class="two-col">
+    <div>
+      <pre><span class="b">struct</span> PostExecPayload {
+  version: u64,        <span class="c">// = 1</span>
+  block_number: u64,   <span class="c">// anchors the tx</span>
+  gas_refund_entries: Vec&lt;SDMGasEntry&gt;,
+}
+<span class="b">struct</span> SDMGasEntry {
+  index: u64,          <span class="c">// tx index in block</span>
+  gas_refund: u64,     <span class="c">// canonical refund</span>
+}</pre>
+      <ul class="small">
+        <li>Encoding: <code>0x7D || rlp([version, blockNumber, entries])</code> — payload not double-wrapped</li>
+        <li>Appended as the <b>last</b> tx in the block; <b>≤ 1</b> per block</li>
+        <li><b>No signature, no signer</b> — no <code>(v,r,s)</code> in the encoding or hash preimage; trusted because the <em>block</em> is. <code>from = 0x0</code>, gas <code>0</code></li>
+        <li>Does <b>not execute EVM code</b> — a receipt-bearing metadata envelope</li>
+        <li><b>No <code>nonce</code></b> — <code>blockNumber</code> anchors uniqueness (design-doc PoC had a nonce; replaced)</li>
+        <li>Type <code>0x7D</code> picked high: <code>0x7E</code>=deposit, <code>0x7F</code> reserved</li>
+        <li><b>Never mempool/gossiped</b> — rejected by <code>eth_sendRawTransaction</code>; reaches verifiers only inside a block</li>
+      </ul>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Every decode path is version-checked</h3>
+        <p style="font-size:16.5px">2718 network/fallback, plain RLP, standalone bytes, reth compact storage — all funnel through <code>decode_checked</code>. Unknown version → <code>"unsupported post-exec payload version"</code>. Old nodes <b>loud-fail</b>, which is correct.</p>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>RPC shape — go-ethereum friendly</h3>
+        <p style="font-size:16.5px">Serializes as a 5-field object: <code>hash</code>, <code>type:0x7d</code>, <code>gas:0</code>, <code>value:0</code>, <code>input:&lt;rlp&gt;</code>. op-node &amp; geth-based clients round-trip it as an opaque typed tx <b>without knowing about PostExec</b>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 9 BLOCK ANATOMY -->
+<section class="slide">
+  <div class="kicker">Where it falls</div>
+  <h2>Anatomy of an SDM block</h2>
+  <div class="two-col">
+    <div>
+      <div class="stack" style="gap:8px">
+        <div class="layer" style="padding:11px 16px;border-color:rgba(177,140,255,.45)"><span class="tag" style="color:var(--violet)">always first</span><code>tx[0]</code> &nbsp;L1-attributes deposit <span class="muted">(0x7E)</span></div>
+        <div class="down">▼</div>
+        <div class="layer" style="padding:11px 16px"><code>tx[1..k]</code> &nbsp;user deposits <span class="muted">(0x7E) — warm, never claim</span></div>
+        <div class="down">▼</div>
+        <div class="layer" style="padding:11px 16px;border-color:rgba(67,211,158,.4)"><span class="tag" style="color:var(--green)">may claim refunds</span><code>tx[k+1..n-1]</code> &nbsp;standard user txs</div>
+        <div class="down">▼</div>
+        <div class="layer" style="padding:11px 16px;border-color:rgba(255,63,86,.5)"><span class="tag" style="color:var(--red)">always last · ≤1 · only if refunds exist</span><code>tx[n]</code> &nbsp;<b>PostExec 0x7D</b> — carries every entry</div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Gas bookkeeping</h3>
+        <table>
+          <tr><th>Component</th><th>Counts as</th></tr>
+          <tr><td>Standard tx <code>i</code></td><td><code>canonicalGasUsed = evmGasUsed − refund</code></td></tr>
+          <tr><td>Deposit tx</td><td><code>evmGasUsed</code> (no refund)</td></tr>
+          <tr><td><code>0x7D</code> tx</td><td><b>zero</b> gas</td></tr>
+        </table>
+        <p style="font-size:15.5px;margin-top:10px">Block <code>gasUsed</code> / <code>cumulativeGasUsed</code> sum the canonical values. The <code>0x7D</code> receipt <b>inherits</b> the preceding tx's <code>cumulativeGasUsed</code>, reports success, empty logs, zero bloom.</p>
+      </div>
+      <p class="note">A single <code>0x7D</code> as the last tx carries refunds for <em>all</em> txs in the block — there is never more than one, and it's absent entirely when no tx earns a refund.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 10 MODES -->
+<section class="slide">
+  <div class="kicker">The heart of it</div>
+  <h2>Four executor modes — chosen up front, fixed for the block</h2>
+  <table>
+    <tr><th>Mode</th><th>When chosen</th><th>What the executor does</th></tr>
+    <tr>
+      <td><span class="pill">Disabled</span></td>
+      <td>Flag off · pre-hardfork · block has no <code>0x7D</code></td>
+      <td>Legacy accounting, no inspector. <b class="ok">Byte-identical to pre-feature behavior.</b> A stray <code>0x7D</code> → fails.</td>
+    </tr>
+    <tr>
+      <td><span class="pill green">Produce</span></td>
+      <td>Sequencer, opted in, building a block</td>
+      <td>Inspector runs per tx; at the end drains non-zero refunds, wraps in <code>PostExecPayload</code>, appends the <code>0x7D</code> tx.</td>
+    </tr>
+    <tr>
+      <td><span class="pill blue">Verify</span></td>
+      <td>Follower (or self-check) executing a block <em>with</em> a <code>0x7D</code></td>
+      <td>Payload is <b>authoritative</b> — canonicalizes each tx against its entry; <b>every entry must be consumed</b> or the block is rejected.</td>
+    </tr>
+    <tr>
+      <td><span class="pill red">Invalid</span></td>
+      <td>A <code>0x7D</code> whose payload didn't decode</td>
+      <td><code>apply_pre_execution_changes</code> errors immediately. Block rejected.</td>
+    </tr>
+  </table>
+  <div class="card amber" style="margin-top:18px;border-color:rgba(255,180,84,.4)">
+    <p style="margin:0;font-size:17.5px"><b class="em">Consensus model:</b> Verify applies the <b>claimed</b> refunds — it does <b>not</b> re-derive them. Warming reproducibility is an <b>off-chain sanity check</b> (the replay tool), not a consensus determinism rule. This is what makes the policy "sequencer-defined" and what enables <em>configurable</em> rebate formulas later.</p>
+  </div>
+</section>
+
+<!-- 10 INSPECTOR -->
+<section class="slide">
+  <div class="kicker">Producer side</div>
+  <h2>The warming inspector — first-touch attribution</h2>
+  <div class="two-col">
+    <div>
+      <p><code>SDMWarmingInspector</code> is a revm <code>Inspector</code> holding <b>block-scoped</b> maps that persist across all txs:</p>
+      <pre>warmed_accounts: Map&lt;Address, Provenance&gt;
+warmed_slots:    Map&lt;(Addr,Slot), Provenance&gt;</pre>
+      <p style="font-size:17px">At the first top-level frame it records <b>intrinsic warmth</b> (beneficiary, precompiles, access &amp; auth lists) — never rebated. As opcodes touch state, it records first-touch provenance; a touch already in the map → <code>emit_refund</code>.</p>
+    </div>
+    <div>
+      <div class="card red">
+        <h3>The composite-inspector fix that matters</h3>
+        <p style="font-size:16.5px">Commit <code>3b7b06fd</code>: previously if the user's inspector short-circuited a <code>call</code>/<code>create</code>, the warming inspector was <b>skipped</b> for that hook → different producers/verifiers could compute different totals → <span class="em">consensus divergence</span>.</p>
+        <p style="font-size:16.5px;margin-bottom:0">Now <b>both run unconditionally</b>; user outcome wins precedence. <b>Invariant:</b> any inspector plugged into the OP EVM must not depend on order-of-invocation with the warming inspector.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 11b INTRINSIC WARMTH -->
+<section class="slide">
+  <div class="kicker">Subtlety · confirmed bug</div>
+  <h2><code>intrinsic</code> warm accounts — and the <span style="color:var(--red)">sender/to over-refund</span></h2>
+  <p class="lead">EIP-2929 pre-loads a tx's accessed-address set <b>before the first opcode</b>: <code>tx.sender</code>, <code>tx.to</code> (or the created address), and the precompiles — EIP-3651 adds the coinbase. Those are <b>intrinsically warm</b>: billed <span class="ok">100</span>, never <span class="em">2600</span>. No surcharge is paid → <b>no rebate is owed</b>.</p>
+  <div class="two-col" style="margin-top:8px">
+    <div>
+      <div class="card red">
+        <h3>The gap</h3>
+        <p style="font-size:16.5px"><code>collect_intrinsic_warmth</code> builds the per-tx exclusion set from <b>beneficiary, precompiles, access-list &amp; 7702 authorities</b> — but <b>not</b> <code>sender</code> / <code>to</code>. They're fed in with <code>allow_refund = <span class="em">true</span></code> instead.</p>
+        <pre class="tiny" style="font-size:13px;margin-bottom:0">self.collect_intrinsic_warmth(ctx);
+let caller = ctx.tx().caller();
+self.observe_account_touch(caller, <span class="r">true</span>);   <span class="c">// refundable!</span>
+if let TxKind::Call(to) = ctx.tx().kind() {
+  self.observe_account_touch(to, <span class="r">true</span>);    <span class="c">// refundable!</span>
+}</pre>
+      </div>
+      <p class="note" style="margin-top:10px">The tell: the code remembers the <em>newer</em> EIP-3651 coinbase pre-warm but forgot the <em>original</em> EIP-2929 <code>sender</code>+<code>to</code> pre-warms.</p>
+    </div>
+    <div>
+      <ul class="small">
+        <li><b>When it fires:</b> any later tx whose <code>sender</code> or <code>to</code> an earlier tx in the block already warmed gets a spurious <span class="em">+2500</span>.</li>
+        <li><b>Same-EOA sequential txs</b> (bot / hot wallet / system sender) — every tx after the first.</li>
+        <li><b>Popular <code>to</code> contract</b> (router, USDC) — 2nd+ tx to it. <span class="muted">Directly hits the "warming discount for Uniswap" use case.</span></li>
+        <li><b>Not a mint:</b> the three guards still hold (per-tx <code>refund ≤ evmGasUsed</code>, value conservation, underflow). It's <b>mis-metering</b> — vaults/beneficiary leak to senders; consensus-affecting but <em>wrong-but-consistent</em>, not a fork.</li>
+      </ul>
+      <div class="card green" style="margin-top:8px;padding:14px 18px">
+        <h3 style="font-size:16px;margin-bottom:6px">Fix</h3>
+        <pre class="tiny" style="font-size:13px;margin:0">intrinsic_warm_accounts.insert(caller);
+if let TxKind::Call(to) = ctx.tx().kind() {
+  intrinsic_warm_accounts.insert(to);
+}</pre>
+        <p class="note" style="margin-top:8px;margin-bottom:0">Keep them in <code>warmed_accounts</code> so a <em>later</em> tx that touches them via a real (genuinely cold) opcode still earns its legitimate rebate. Open: confirm <code>to</code> pre-warm on plain value transfers; handle the <code>Create</code> address.</p>
+      </div>
+    </div>
+  </div>
+  <p class="tiny" style="margin-top:6px">rust/alloy-op-evm/src/post_exec/inspector.rs — collect_intrinsic_warmth / ensure_top_level_initialized · not yet covered by tests</p>
+</section>
+
+<!-- 11 OP-RETH INTEGRATION -->
+<section class="slide">
+  <div class="kicker">EL integration</div>
+  <h2>op-reth: the opt-in &amp; the build path</h2>
+  <div class="two-col">
+    <div>
+      <h3 style="font-size:19px;color:var(--blue)">Two-gate activation model</h3>
+      <ul class="small">
+        <li><b>Consensus gate</b> — <code>is_sdm_active_at_timestamp</code> (hardfork). Decides whether <code>0x7D</code> is <em>allowed</em>.</li>
+        <li><b>Operator opt-in</b> — live <code>AtomicBool</code>, flipped by admin RPC <code>admin_setSdmPostExecOptIn</code> / <code>admin_sdmStatus</code>. Decides whether <em>this sequencer produces</em> them.</li>
+      </ul>
+      <p class="note">Replaced the old static <code>--rollup.sdm-enabled</code> CLI flag. Followers always verify whatever the chain mandates; only production is opt-in.</p>
+    </div>
+    <div>
+      <h3 style="font-size:19px;color:var(--green)">Produce build path</h3>
+      <pre class="tiny" style="font-size:13.5px">post_exec_builder_for_next_block(.. Produce)
+   <span class="r">↓</span>  inspector wired per tx
+execute all user + deposit txs
+   <span class="r">↓</span>
+take_post_exec_entries()  <span class="c">// non-zero only</span>
+   <span class="r">↓</span>
+build TxPostExec(block_num, entries)
+   <span class="r">↓</span>
+execute_transaction(post_exec)
+   <span class="r">↓</span>  <span class="a">if fails → ABORT build</span>
+finish() — 0x7D sealed as last tx</pre>
+      <p class="note">A partial block with refunds applied but <b>no witnessing 0x7D</b> would be unverifiable — so it's never silently dropped.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 12 FLASHBLOCKS -->
+<section class="slide">
+  <div class="kicker">Builder side</div>
+  <h2>Flashblocks: op-rbuilder + rollup-boost</h2>
+  <div class="card amber" style="border-color:rgba(255,180,84,.45);padding:13px 18px;margin-bottom:14px">
+    <p style="margin:0;font-size:16.5px"><b class="em">Test-only path.</b> The op-rbuilder / rollup-boost flashblocks work exists to <b>exercise streaming SDM block-building under test</b>. The production streaming integration is <b>subblocks</b> (roadmap #105, gated on subblocks reaching prod) — not these two components.</p>
+  </div>
+  <p class="lead">Any flashblock must be materializable into a valid block — so intermediate views also need a valid trailing <code>0x7D</code>.</p>
+  <div class="two-col" style="margin-top:6px">
+    <div>
+      <div class="card">
+        <h3>Wire shape</h3>
+        <p style="font-size:16.5px">SDM rides in the flashblock <b>diff</b>, not metadata:</p>
+        <pre class="tiny" style="font-size:13px">ExecutionPayloadFlashblockDeltaV1 {
+  transactions: Vec&lt;Bytes&gt;,   <span class="c">// append-only</span>
+  post_exec_tx: Option&lt;Bytes&gt;, <span class="c">// replaced</span>
+}</pre>
+        <p style="font-size:15.5px;margin-bottom:0">Materialize: <code>base + concat(txs) + latest(post_exec_tx)</code>. rollup-boost appends only the <b>latest</b>.</p>
+      </div>
+    </div>
+    <div>
+      <ul class="small">
+        <li><b>op-rbuilder</b> builds the diff &amp; computes roots over the materialized view <em>including</em> the <code>0x7D</code></li>
+        <li><b>rollup-boost</b> folds diffs &amp; appends the latest <code>0x7D</code> as the final tx</li>
+        <li>Three builders now share <code>build_current_post_exec_tx</code> / <code>materialize_post_exec</code> — standard, flashblocks, and op-reth produce-side rules in one place</li>
+        <li><b>flashblocks-rpc</b> filters the synthetic tx out of user-facing block/receipt/nonce views</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- DERIVATION DATA FLOW -->
+<section class="slide">
+  <div class="kicker">Data flow</div>
+  <h2>How the <code>0x7D</code> tx travels — two paths, one body</h2>
+  <p class="lead">Unlike deposits (synthesized from L1 events), the PostExec tx lives <b>inside the L2 block body</b> and rides both the unsafe-p2p and the L1-batch paths. It is <b>never</b> an L1 batcher tx.</p>
+  <div class="card" style="margin-top:6px;background:var(--bg2)">
+    <div style="display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap;font-family:var(--mono);font-size:14.5px">
+      <div class="node" style="border-color:rgba(67,211,158,.5);text-align:center">SEQUENCER<br><span class="muted">Produce mode</span><br>builds block,<br>appends <span class="g">0x7D</span> last</div>
+      <span class="arr">→</span>
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div style="display:flex;align-items:center">
+          <div class="node" style="border-color:rgba(92,198,255,.5)">unsafe payload<br><span class="muted">gossip · signed by sequencer</span></div>
+          <span class="arr">→</span>
+          <div class="node">verifier<br><span class="muted">newPayload</span></div>
+          <span class="arr">→</span>
+          <div class="node" style="border-color:rgba(92,198,255,.5)"><b class="b">Verify</b><br><span class="muted">parse embedded 0x7D</span></div>
+        </div>
+        <div style="display:flex;align-items:center">
+          <div class="node">batcher</div>
+          <span class="arr">→</span>
+          <div class="node">L1 DA<br><span class="muted">blob/calldata</span></div>
+          <span class="arr">→</span>
+          <div class="node" style="border-color:rgba(255,180,84,.5)">derivation<br><span class="a">IsSDM gate</span></div>
+          <span class="arr">→</span>
+          <div class="node" style="border-color:rgba(92,198,255,.5)"><b class="b">Verify</b><br><span class="muted">rebuild safe block</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="grid g3" style="margin-top:18px">
+    <div class="card"><h3 style="font-size:17px">Derivation gate</h3><p style="font-size:15.5px;margin:0">Post-Lagoon, <code>IsSDM</code> lets batches carry <code>0x7D</code>. Pre-SDM, a batch with a <code>0x7D</code> is <b>dropped</b> (<code>batches.go</code>).</p></div>
+    <div class="card"><h3 style="font-size:17px">EL is the authority</h3><p style="font-size:15.5px;margin:0">Structural derivation checks were intentionally dropped — the EL validates the embedded payload in <b>Verify</b> mode.</p></div>
+    <div class="card"><h3 style="font-size:17px">Rebuild paths → Verify</h3><p style="font-size:15.5px;margin:0">Reorg recovery, window expiry, P2P-less verifier (<code>no_tx_pool</code>) all force-build the derived block in Verify <span class="muted">(#21321)</span>.</p></div>
+  </div>
+</section>
+
+<!-- 13 DERIVATION + PROOFS -->
+<section class="slide">
+  <div class="kicker">CL &amp; fault proofs</div>
+  <h2>Derivation gating and proof validation</h2>
+  <div class="two-col">
+    <div class="card">
+      <h3>Derivation (op-node / kona-node)</h3>
+      <p style="font-size:17px">Once SDM is active, span batches legitimately carry <code>0x7D</code> txs. The <code>IsSDM</code> gate decides acceptance:</p>
+      <pre class="tiny" style="font-size:13.5px"><span class="c">// op-node/rollup/toggles.go</span>
+func (c *Config) IsSDM(t uint64) bool {
+    <span class="b">return</span> c.IsInterop(t)   <span class="c">// rides the toggle</span>
+}</pre>
+      <p style="font-size:16px">Before SDM: a batch with a <code>0x7D</code> is <b>dropped</b> in <code>batches.go</code>. The <b>EL is the validity authority</b> — structural derivation checks were intentionally dropped.</p>
+    </div>
+    <div class="card">
+      <h3>Fault proofs (kona)</h3>
+      <p style="font-size:17px">The kona proof executor validates the same invariants under the fault-proof VM: at-most-one, must-be-last, block-number match, no deposit/self targets, refund ≤ raw gas.</p>
+      <p style="font-size:16px">Covered by <b>7 reject-matrix tests</b> in <code>builder/core/tests.rs</code> (landed via #21034). <span class="em">Open:</span> the absolute prestate must be regenerated for the Lagoon hardfork.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 15 HARDFORK -->
+<section class="slide">
+  <div class="kicker">Activation</div>
+  <h2>SDM ships with <span style="color:var(--red)">Lagoon</span></h2>
+  <div class="two-col">
+    <div>
+      <p>The <b>spec</b> says SDM is "gated by the <b>Lagoon</b> activation timestamp" directly. But all three clients on <code>develop</code> still route through the <b>Interop toggle</b>:</p>
+      <pre><span class="a">spec:</span> IsSDM(t) → IsLagoon(t)
+<span class="r">code:</span> IsSDM(t) → IsInterop(t) → IsLagoon(t)</pre>
+      <p style="font-size:16.5px">PR #21105 renamed the Interop hardfork → <b>Lagoon</b>; the Interop <em>toggle</em> was kept separate so the feature can decouple from the fork later. Behaviorally identical today (toggle ⇔ Lagoon).</p>
+    </div>
+    <div>
+      <div class="card amber" style="border-color:rgba(255,180,84,.4)">
+        <h3><span class="pill amber">next</span> Decouple SDM → Lagoon directly (#21129)</h3>
+        <p style="font-size:16.5px">SDM and Interop are unrelated features that merely activate at the same fork today. If anyone ever decouples the Interop toggle from Lagoon, <code>IsSDM</code> would <b>silently follow it to the wrong activation</b> — a latent consensus bug.</p>
+        <p style="font-size:16.5px;margin-bottom:0"><b>Fix:</b> gate SDM on <code>IsLagoon</code> / <code>is_lagoon_active</code> directly across op-node, op-reth, kona. Behavior-preserving today; removes the hazard. <span class="tiny">(still pending on <code>develop</code>)</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 16 TESTS -->
+<section class="slide">
+  <div class="kicker">Test coverage</div>
+  <h2>Validity is tested at every layer</h2>
+  <div class="grid g3">
+    <div class="card"><h3>op-alloy <span class="tiny">consensus</span></h3><ul class="small">
+      <li>RLP / 2718 roundtrips incl. empty refunds</li>
+      <li>Unknown-version &amp; trailing-byte rejection</li>
+      <li>Hash binds to block number</li>
+      <li>RPC serde forms</li></ul></div>
+    <div class="card"><h3>alloy-op-evm <span class="tiny">inspector</span></h3><ul class="small">
+      <li>Refund-once per account/slot</li>
+      <li>Deposit warms, doesn't claim</li>
+      <li><code>0x7D</code> never claims</li>
+      <li>Intrinsic access-list exclusion</li>
+      <li>Cross-flashblock seeded warmth</li></ul></div>
+    <div class="card"><h3>alloy-op-evm <span class="tiny">executor</span></h3><ul class="small">
+      <li>Producer→verifier roundtrip, receipt equality</li>
+      <li>Pre-refund gas-limit enforcement</li>
+      <li>Dup index / block mismatch / refund&gt;gas / unconsumed-entry negatives</li></ul></div>
+    <div class="card"><h3>op-reth <span class="tiny">builder + evm</span></h3><ul class="small">
+      <li><code>try_include_post_exec_tx</code> empty/happy/abort</li>
+      <li>Verify-from-embedded, opt-in-independent</li>
+      <li>SDM-rides-activation</li></ul></div>
+    <div class="card"><h3>kona <span class="tiny">fault proofs</span></h3><ul class="small">
+      <li>7-case reject matrix: dup, wrong block#, deposit/self target, forced-inactive</li>
+      <li>Empty payload = no-op</li></ul></div>
+    <div class="card"><h3>rollup-boost + Go e2e</h3><ul class="small">
+      <li>4 <code>build_envelope</code> materialization tests</li>
+      <li>Acceptance: disabled-no-refunds, payload/replay match, mixed workload, Interop boundary, flashblocks, isolated-verifier derive</li></ul></div>
+  </div>
+  <p class="note" style="margin-top:12px"><b>Known gaps:</b> <span class="hl">no test pins that a tx's own <code>sender</code>/<code>to</code> is excluded from the warm rebate — and today's code doesn't (the intrinsic-warm over-refund bug)</span>; direct parser unit tests for <code>MultiplePostExecTxs</code>/<code>UnexpectedPostExecTx</code>; inspector against <em>real</em> EVM execution (opcode decode, CREATE address, reverted txs); admin-RPC toggle races; extreme-payload &amp; DA-accounting edges. Tracked under #21324.</p>
+</section>
+
+<!-- 17 REPLAY TOOLING -->
+<section class="slide">
+  <div class="kicker">Operator tooling</div>
+  <h2>Off-chain verification: replay</h2>
+  <div class="two-col">
+    <div class="card">
+      <h3><code>debug_replaySDMBlock</code> <span class="pill amber">operator-only</span></h3>
+      <p style="font-size:16.5px">RPC on the op-reth node. Replays a block in counterfactual mode against live state and returns synthesized payload, per-tx replay refunds, canonical-vs-raw gas, warming provenance, and mismatches.</p>
+      <p style="font-size:15.5px;color:var(--muted);margin-bottom:0"><b>Cost:</b> O(block × state), no per-call cap; <code>Semaphore(3)</code> caps concurrency. Hardening (admin namespace + auth + ceilings) is a pre-canary item.</p>
+    </div>
+    <div class="card">
+      <h3><code>sdmreplay</code> <span class="pill blue">Go CLI</span></h3>
+      <p style="font-size:16.5px">Drives the RPC across a block range, emits JSONL (<code>run_config</code> / <code>block</code> / <code>tx</code> / <code>mismatch</code> / <code>summary</code>).</p>
+      <p style="font-size:16px"><code>--fail-on-mismatch</code> → non-zero exit, so it runs as a <b>CI gate or cron monitor</b>.</p>
+      <p style="font-size:15px;color:var(--muted);margin-bottom:0">Detects: duplicate/out-of-range index, deposit/self target, refund&gt;gas, payload≠replay, receipt <code>opGasRefund</code>≠replay.</p>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px">Reminder: replay is a <b>diagnostic sanity check</b>, not a consensus rule. Consensus applies the <em>claimed</em> refunds; replay confirms a producer's claims match re-derived warming.</p>
+</section>
+
+<!-- DEVNET & VISUALIZATION -->
+<section class="slide">
+  <div class="kicker">Run it &amp; see it</div>
+  <h2>Devnet &amp; visualization — kupcake + Blockscout</h2>
+  <div class="two-col">
+    <div class="card blue">
+      <h3><b>kupcake</b> <span class="pill blue">local devnet</span></h3>
+      <p style="font-size:16.5px">One-command Rust OP Stack devnet — local L1 (Anvil fork) + full <b>kona-node / op-reth</b> stack, op-batcher/proposer/challenger/conductor, Prometheus + Grafana.</p>
+      <ul class="small">
+        <li><b>SDM is supported &amp; runnable</b> end-to-end on the devnet</li>
+        <li>Ships a built-in <b>“SDM Overview” Grafana dashboard</b>: refund gas, PostExec executions/validations, <code>admin_sdmStatus</code> / <code>debug_replaySDMBlock</code> call rates, op-rbuilder opt-in &amp; flashblocks panels</li>
+      </ul>
+      <p class="tiny" style="margin-bottom:0">~/code/.../kupcake · grafana/dashboards/sdm-overview.json</p>
+    </div>
+    <div class="card green">
+      <h3><b>Blockscout</b> <span class="pill green">explorer</span></h3>
+      <p style="font-size:16.5px">kupcake can launch a local Blockscout indexing the sequencer's RPC (<code>--blockscout</code>).</p>
+      <ul class="small">
+        <li>We can <b>visualize the <code>0x7D</code> PostExec transaction</b> and the SDM-adjusted receipts directly in the explorer</li>
+        <li>Blockscout front+back <code>0x7D</code> support is part of the ecosystem workstream (roadmap #21110)</li>
+      </ul>
+      <p class="tiny" style="margin-bottom:0">Lets non-protocol folks see SDM blocks &amp; refunds without RPC spelunking.</p>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px">Together: spin up a chain with SDM on, drive a workload, watch refunds accrue on the dashboard, and inspect the trailing <code>0x7D</code> + <code>opGasRefund</code> in Blockscout.</p>
+</section>
+
+<!-- 18 ROADMAP -->
+<section class="slide">
+  <div class="kicker">What's next</div>
+  <h2>Roadmap to production — ~3.8 EM, 2–3 months</h2>
+  <div class="two-col">
+    <div>
+      <h3 style="color:var(--red);font-size:20px">M1 · Hardening &amp; hardfork prep <span class="tiny">~1.75 EM</span></h3>
+      <ul class="small">
+        <li><b>#97</b> Configurable rebate policies — the gap to the <em>custom</em>-formula DoD (drop the deterministic-recalc check, generalize the policy path)</li>
+        <li><b>#21129/#21360</b> Lagoon-gate decoupling &amp; flag coherence (op-reth/op-node/kona-node + hot-toggle)</li>
+        <li><b>#21324</b> Test hardening — ETH-supply conservation, underflow path, mid-block/out-of-order <code>0x7D</code> rejection, <span class="hl"><code>sender</code>/<code>to</code> intrinsic-warm over-refund</span></li>
+        <li><b>#102</b> Threat model with EVM Safety</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="color:var(--blue);font-size:20px">M2 · Rollout &amp; adoption <span class="tiny">~2.05 EM</span></h3>
+      <ul class="small">
+        <li><b>#21273</b> Devnet, benchmarks &amp; Unichain production activation <span class="muted">(wall-clock long pole)</span></li>
+        <li><b>#21110</b> Ecosystem — blockscout <code>0x7D</code> support, outreach to explorers</li>
+        <li><b>#105</b> Subblocks integration <span class="muted">(gated on subblocks in prod)</span></li>
+        <li><b>#21325</b> Tech talk / comms <span class="muted">(this deck 🙂)</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card red" style="margin-top:16px">
+    <p style="margin:0;font-size:16.5px"><b>Pre-canary must-dos:</b> Lagoon absolute prestate regen for fault proofs · <code>debug_replaySDMBlock</code> hardening · production observability (refund volume / follower-mismatch dashboards). Stage plan: <b>devnet → testnet canary (≥2 wks, <code>sdmreplay --fail-on-mismatch</code> running) → mainnet via Lagoon timestamp.</b></p>
+  </div>
+</section>
+
+<!-- 19 TAKEAWAYS -->
+<section class="slide center">
+  <div class="title-wrap">
+    <div class="kicker">Takeaways</div>
+    <h1 style="font-size:42px">Five things to remember</h1>
+    <ul style="margin-top:24px">
+      <li style="font-size:22px"><b>SDM rebates cross-tx warm-state access</b> within a block — the EIP-2929 cold→warm differential the EVM never reclaims.</li>
+      <li style="font-size:22px"><b>PostExec is the mechanism, SDM is the feature.</b> A generic <code>0x7D</code> envelope; SDM is its first consumer.</li>
+      <li style="font-size:22px"><b>Consensus applies <em>claimed</em> refunds, doesn't re-derive them</b> — replay is an off-chain sanity check. This enables configurable policies.</li>
+      <li style="font-size:22px"><b>Code-complete on <code>develop</code></b> across the whole stack; four consensus-correctness fixes just landed — one open: the <code>sender</code>/<code>to</code> intrinsic-warm over-refund.</li>
+      <li style="font-size:22px"><b>Ships with Lagoon</b> — remaining work is configurable policy, hardfork-gate decoupling, test hardening, and the devnet→canary→mainnet rollout.</li>
+    </ul>
+    <div class="meta" style="margin-top:34px">
+      <span><b>Spec</b> specs/protocol/lagoon/{post-exec,sdm}.md</span>
+      <span><b>Design doc</b> design-docs/protocol/sdm.md</span>
+      <span><b>Onboarding</b> ~/sdm-docs/2026-04-20/SDM_ONBOARDING.md</span>
+      <span><b>Review</b> 2026-06-10-sdm-postexec-develop-review.md</span>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <span><span class="dot">●</span> SDM &amp; PostExec — OP Labs Engineering</span>
+  <span id="counter">1 / 21</span>
+</footer>
+<div class="help">← → / Space · F fullscreen · O overview</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  const counter=document.getElementById('counter');
+  const prog=document.getElementById('prog');
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    counter.textContent=(i+1)+' / '+slides.length;
+    prog.style.width=((i+1)/slides.length*100)+'%';
+    location.hash=i+1;
+  }
+  function next(){show(i+1)}
+  function prev(){show(i-1)}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();next()}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev()}
+    else if(e.key==='Home'){show(0)}
+    else if(e.key==='End'){show(slides.length-1)}
+    else if(e.key.toLowerCase()==='f'){
+      if(!document.fullscreenElement)document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+    else if(e.key.toLowerCase()==='o'){document.body.classList.toggle('ov')}
+  });
+  // click right/left half to navigate
+  document.getElementById('deck').addEventListener('click',e=>{
+    if(e.target.closest('a'))return;
+    (e.clientX>window.innerWidth/2?next:prev)();
+  });
+  const start=parseInt(location.hash.slice(1));
+  show(Number.isFinite(start)&&start>0?start-1:0);
+</script>
+</body>
+</html>
