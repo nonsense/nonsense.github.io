@@ -100,37 +100,14 @@
     <div class="sub">What SDM is, how the <code>0x7D</code> transaction works, what landed on <code>develop</code>, which hardfork it ships with, how it's tested, and what's next.</div>
     <div class="meta">
       <span><b>Presenter</b> Anton Evangelatov</span>
-      <span><b>Date</b> 2026-06-15</span>
+      <span><b>Date</b> 2026-07-16</span>
       <span><b>Status</b> code-complete on <code>develop</code>, pre-hardfork</span>
       <span><b>Ships with</b> Lagoon</span>
     </div>
   </div>
 </section>
 
-<!-- 2 WHY -->
-<section class="slide">
-  <div class="kicker">The problem</div>
-  <h2>Baseline EVM overcharges for warm state</h2>
-  <div class="two-col">
-    <div>
-      <p>EIP-2929 prices the <b>first</b> access to an account or storage slot as <em class="em">cold</em> — and every later access in the <b>same transaction</b> as <em class="ok">warm</em>.</p>
-      <p>But warmth <b>resets at each transaction boundary.</b> Tx&nbsp;B pays full cold price for state that tx&nbsp;A already loaded into memory earlier in the <b>same block</b>.</p>
-      <p>The execution client did the I/O <b>once</b>. Charging the second caller as if it were cold is consensus-correct but <span class="hl">economically wasteful</span>.</p>
-    </div>
-    <div class="card">
-      <h3>Cold vs warm (EIP-2929)</h3>
-      <table>
-        <tr><th>Access</th><th>Cold</th><th>Warm</th><th>Δ</th></tr>
-        <tr><td>Account</td><td>2600</td><td>100</td><td class="em">2500</td></tr>
-        <tr><td>SLOAD</td><td>2100</td><td>100</td><td class="em">2000</td></tr>
-        <tr><td>SSTORE</td><td>2200</td><td>100</td><td class="em">2100</td></tr>
-      </table>
-      <p class="note">SDM rebates exactly this differential — but <b>across transactions within a block</b>, which the EVM never does on its own.</p>
-    </div>
-  </div>
-</section>
-
-<!-- 3 WHAT IS SDM -->
+<!-- 2 WHAT IS SDM -->
 <section class="slide">
   <div class="kicker">Definition</div>
   <h2>SDM = Sequencer-Defined Metering</h2>
@@ -152,6 +129,29 @@
   </div>
   <div class="card blue" style="margin-top:20px">
     <p style="margin:0;font-size:18px"><b class="ok">Acceptance goal (DoD):</b> a sequencer can define and apply a custom rebate formula at block production — e.g. a block-level warming discount for Uniswap — running in production on Unichain, with consensus-level verification code living in the monorepo.</p>
+  </div>
+</section>
+
+<!-- 3 WHY -->
+<section class="slide">
+  <div class="kicker">The problem</div>
+  <h2>Baseline EVM overcharges for warm state</h2>
+  <div class="two-col">
+    <div>
+      <p>EIP-2929 prices the <b>first</b> access to an account or storage slot as <em class="em">cold</em> — and every later access in the <b>same transaction</b> as <em class="ok">warm</em>.</p>
+      <p>But warmth <b>resets at each transaction boundary.</b> Tx&nbsp;B pays full cold price for state that tx&nbsp;A already loaded into memory earlier in the <b>same block</b>.</p>
+      <p>The execution client did the I/O <b>once</b>. Charging the second caller as if it were cold is consensus-correct but <span class="hl">economically wasteful</span>.</p>
+    </div>
+    <div class="card">
+      <h3>Cold vs warm (EIP-2929)</h3>
+      <table>
+        <tr><th>Access</th><th>Cold</th><th>Warm</th><th>Δ</th></tr>
+        <tr><td>Account</td><td>2600</td><td>100</td><td class="em">2500</td></tr>
+        <tr><td>SLOAD</td><td>2100</td><td>100</td><td class="em">2000</td></tr>
+        <tr><td>SSTORE</td><td>2200</td><td>100</td><td class="em">2100</td></tr>
+      </table>
+      <p class="note">SDM rebates exactly this differential — but <b>across transactions within a block</b>, which the EVM never does on its own.</p>
+    </div>
   </div>
 </section>
 
@@ -208,10 +208,6 @@ operator_fee_delta = opfee(raw) - opfee(canonical)
         <h3>When &amp; how it settles</h3>
         <p style="font-size:16.5px">EVM runs with full cold pricing untouched. Settlement applies <b>after the tx's EVM frame, before its state delta commits</b> — <b>atomic with that tx</b>, no separate receipt. Layers onto an <b>unmodified EVM</b>. <span class="muted">The L1 fee vault is not adjusted (L1 cost is independent of L2 gas).</span></p>
       </div>
-      <div class="card red" style="margin-top:14px">
-        <h3>Underflow guard</h3>
-        <p style="font-size:17px">If any recipient can't cover its debit → <code>PostExecSettlementUnderflow</code> and the block <b>fails</b>. (In practice they already collected the fees being refunded.)</p>
-      </div>
     </div>
   </div>
   <p class="tiny" style="margin-top:6px">rust/alloy-op-evm/src/block/mod.rs — post_exec_settlement_deltas / apply_post_exec_refund_to_state</p>
@@ -227,7 +223,7 @@ operator_fee_delta = opfee(raw) - opfee(canonical)
       <p style="font-size:17px">A <b>generic, feature-agnostic transport</b> for block-level post-execution data.</p>
       <ul class="small">
         <li>Synthetic tx type <code>0x7D</code> + versioned <code>PostExecPayload</code></li>
-        <li>Executor modes: Disabled / Produce / Verify / Invalid</li>
+        <li>Executor modes: Disabled / Produce / Verify</li>
         <li><code>debug_replaySDMBlock</code> RPC + <code>post-exec-replay</code> crate</li>
       </ul>
     </div>
@@ -277,7 +273,7 @@ operator_fee_delta = opfee(raw) - opfee(canonical)
     </div>
     <div class="down">▼</div>
     <div class="layer"><span class="tag">operator &amp; test tooling</span>
-      <b>op-chain-ops/sdmreplay</b> (Go CLI) · <b>op-acceptance-tests/tests/sdm</b> · devstack flag plumbing
+      <b>op-chain-ops/cmd/sdm-devnet</b> + <b>pkg/sdm</b> (Go replay CLI) · <b>op-acceptance-tests/tests/sdm</b> · devstack flag plumbing
     </div>
   </div>
 </section>
@@ -355,7 +351,7 @@ operator_fee_delta = opfee(raw) - opfee(canonical)
 <!-- 10 MODES -->
 <section class="slide">
   <div class="kicker">The heart of it</div>
-  <h2>Four executor modes — chosen up front, fixed for the block</h2>
+  <h2>Three executor modes — chosen up front, fixed for the block</h2>
   <table>
     <tr><th>Mode</th><th>When chosen</th><th>What the executor does</th></tr>
     <tr>
@@ -373,12 +369,8 @@ operator_fee_delta = opfee(raw) - opfee(canonical)
       <td>Follower (or self-check) executing a block <em>with</em> a <code>0x7D</code></td>
       <td>Payload is <b>authoritative</b> — canonicalizes each tx against its entry; <b>every entry must be consumed</b> or the block is rejected.</td>
     </tr>
-    <tr>
-      <td><span class="pill red">Invalid</span></td>
-      <td>A <code>0x7D</code> whose payload didn't decode</td>
-      <td><code>apply_pre_execution_changes</code> errors immediately. Block rejected.</td>
-    </tr>
   </table>
+  <p class="note" style="margin-top:10px">A <code>0x7D</code> whose payload can't decode isn't a fourth mode — it surfaces as an <code>invalid_reason</code> on the block's <code>Verifying</code> state; <code>apply_pre_execution_changes</code> errors immediately and the block is rejected. <span class="tiny">rust/alloy-op-evm/src/block/mod.rs — <code>PostExecMode</code> {Disabled, Produce, Verify}</span></p>
   <div class="card amber" style="margin-top:18px;border-color:rgba(255,180,84,.4)">
     <p style="margin:0;font-size:17.5px"><b class="em">Consensus model:</b> Verify applies the <b>claimed</b> refunds — it does <b>not</b> re-derive them. Warming reproducibility is an <b>off-chain sanity check</b> (the replay tool), not a consensus determinism rule. This is what makes the policy "sequencer-defined" and what enables <em>configurable</em> rebate formulas later.</p>
   </div>
@@ -388,60 +380,10 @@ operator_fee_delta = opfee(raw) - opfee(canonical)
 <section class="slide">
   <div class="kicker">Producer side</div>
   <h2>The warming inspector — first-touch attribution</h2>
-  <div class="two-col">
-    <div>
-      <p><code>SDMWarmingInspector</code> is a revm <code>Inspector</code> holding <b>block-scoped</b> maps that persist across all txs:</p>
-      <pre>warmed_accounts: Map&lt;Address, Provenance&gt;
+  <p><code>SDMWarmingInspector</code> is a revm <code>Inspector</code> holding <b>block-scoped</b> maps that persist across all txs:</p>
+  <pre>warmed_accounts: Map&lt;Address, Provenance&gt;
 warmed_slots:    Map&lt;(Addr,Slot), Provenance&gt;</pre>
-      <p style="font-size:17px">At the first top-level frame it records <b>intrinsic warmth</b> (beneficiary, precompiles, access &amp; auth lists) — never rebated. As opcodes touch state, it records first-touch provenance; a touch already in the map → <code>emit_refund</code>.</p>
-    </div>
-    <div>
-      <div class="card red">
-        <h3>The composite-inspector fix that matters</h3>
-        <p style="font-size:16.5px">Commit <code>3b7b06fd</code>: previously if the user's inspector short-circuited a <code>call</code>/<code>create</code>, the warming inspector was <b>skipped</b> for that hook → different producers/verifiers could compute different totals → <span class="em">consensus divergence</span>.</p>
-        <p style="font-size:16.5px;margin-bottom:0">Now <b>both run unconditionally</b>; user outcome wins precedence. <b>Invariant:</b> any inspector plugged into the OP EVM must not depend on order-of-invocation with the warming inspector.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- 11b INTRINSIC WARMTH -->
-<section class="slide">
-  <div class="kicker">Subtlety · confirmed bug</div>
-  <h2><code>intrinsic</code> warm accounts — and the <span style="color:var(--red)">sender/to over-refund</span></h2>
-  <p class="lead">EIP-2929 pre-loads a tx's accessed-address set <b>before the first opcode</b>: <code>tx.sender</code>, <code>tx.to</code> (or the created address), and the precompiles — EIP-3651 adds the coinbase. Those are <b>intrinsically warm</b>: billed <span class="ok">100</span>, never <span class="em">2600</span>. No surcharge is paid → <b>no rebate is owed</b>.</p>
-  <div class="two-col" style="margin-top:8px">
-    <div>
-      <div class="card red">
-        <h3>The gap</h3>
-        <p style="font-size:16.5px"><code>collect_intrinsic_warmth</code> builds the per-tx exclusion set from <b>beneficiary, precompiles, access-list &amp; 7702 authorities</b> — but <b>not</b> <code>sender</code> / <code>to</code>. They're fed in with <code>allow_refund = <span class="em">true</span></code> instead.</p>
-        <pre class="tiny" style="font-size:13px;margin-bottom:0">self.collect_intrinsic_warmth(ctx);
-let caller = ctx.tx().caller();
-self.observe_account_touch(caller, <span class="r">true</span>);   <span class="c">// refundable!</span>
-if let TxKind::Call(to) = ctx.tx().kind() {
-  self.observe_account_touch(to, <span class="r">true</span>);    <span class="c">// refundable!</span>
-}</pre>
-      </div>
-      <p class="note" style="margin-top:10px">The tell: the code remembers the <em>newer</em> EIP-3651 coinbase pre-warm but forgot the <em>original</em> EIP-2929 <code>sender</code>+<code>to</code> pre-warms.</p>
-    </div>
-    <div>
-      <ul class="small">
-        <li><b>When it fires:</b> any later tx whose <code>sender</code> or <code>to</code> an earlier tx in the block already warmed gets a spurious <span class="em">+2500</span>.</li>
-        <li><b>Same-EOA sequential txs</b> (bot / hot wallet / system sender) — every tx after the first.</li>
-        <li><b>Popular <code>to</code> contract</b> (router, USDC) — 2nd+ tx to it. <span class="muted">Directly hits the "warming discount for Uniswap" use case.</span></li>
-        <li><b>Not a mint:</b> the three guards still hold (per-tx <code>refund ≤ evmGasUsed</code>, value conservation, underflow). It's <b>mis-metering</b> — vaults/beneficiary leak to senders; consensus-affecting but <em>wrong-but-consistent</em>, not a fork.</li>
-      </ul>
-      <div class="card green" style="margin-top:8px;padding:14px 18px">
-        <h3 style="font-size:16px;margin-bottom:6px">Fix</h3>
-        <pre class="tiny" style="font-size:13px;margin:0">intrinsic_warm_accounts.insert(caller);
-if let TxKind::Call(to) = ctx.tx().kind() {
-  intrinsic_warm_accounts.insert(to);
-}</pre>
-        <p class="note" style="margin-top:8px;margin-bottom:0">Keep them in <code>warmed_accounts</code> so a <em>later</em> tx that touches them via a real (genuinely cold) opcode still earns its legitimate rebate. Open: confirm <code>to</code> pre-warm on plain value transfers; handle the <code>Create</code> address.</p>
-      </div>
-    </div>
-  </div>
-  <p class="tiny" style="margin-top:6px">rust/alloy-op-evm/src/post_exec/inspector.rs — collect_intrinsic_warmth / ensure_top_level_initialized · not yet covered by tests</p>
+  <p style="font-size:17px">At the first top-level frame it records <b>intrinsic warmth</b> (beneficiary, precompiles, access &amp; auth lists) — never rebated. As opcodes touch state, it records first-touch provenance; a touch already in the map → <code>emit_refund</code>.</p>
 </section>
 
 <!-- 11 OP-RETH INTEGRATION -->
@@ -453,7 +395,7 @@ if let TxKind::Call(to) = ctx.tx().kind() {
       <h3 style="font-size:19px;color:var(--blue)">Two-gate activation model</h3>
       <ul class="small">
         <li><b>Consensus gate</b> — <code>is_sdm_active_at_timestamp</code> (hardfork). Decides whether <code>0x7D</code> is <em>allowed</em>.</li>
-        <li><b>Operator opt-in</b> — live <code>AtomicBool</code>, flipped by admin RPC <code>admin_setSdmPostExecOptIn</code> / <code>admin_sdmStatus</code>. Decides whether <em>this sequencer produces</em> them.</li>
+        <li><b>Operator opt-in</b> — live <code>AtomicBool</code>, flipped by admin RPC <code>admin_setOperatorSdmOptIn</code> / <code>admin_sdmStatus</code>. Decides whether <em>this sequencer produces</em> them.</li>
       </ul>
       <p class="note">Replaced the old static <code>--rollup.sdm-enabled</code> CLI flag. Followers always verify whatever the chain mandates; only production is opt-in.</p>
     </div>
@@ -552,14 +494,14 @@ finish() — 0x7D sealed as last tx</pre>
       <p style="font-size:17px">Once SDM is active, span batches legitimately carry <code>0x7D</code> txs. The <code>IsSDM</code> gate decides acceptance:</p>
       <pre class="tiny" style="font-size:13.5px"><span class="c">// op-node/rollup/toggles.go</span>
 func (c *Config) IsSDM(t uint64) bool {
-    <span class="b">return</span> c.IsInterop(t)   <span class="c">// rides the toggle</span>
+    <span class="b">return</span> c.IsLagoon(t)   <span class="c">// gated on Lagoon directly</span>
 }</pre>
       <p style="font-size:16px">Before SDM: a batch with a <code>0x7D</code> is <b>dropped</b> in <code>batches.go</code>. The <b>EL is the validity authority</b> — structural derivation checks were intentionally dropped.</p>
     </div>
     <div class="card">
       <h3>Fault proofs (kona)</h3>
       <p style="font-size:17px">The kona proof executor validates the same invariants under the fault-proof VM: at-most-one, must-be-last, block-number match, no deposit/self targets, refund ≤ raw gas.</p>
-      <p style="font-size:16px">Covered by <b>7 reject-matrix tests</b> in <code>builder/core/tests.rs</code> (landed via #21034). <span class="em">Open:</span> the absolute prestate must be regenerated for the Lagoon hardfork.</p>
+      <p style="font-size:16px">Covered by <b>9 reject-matrix tests</b> in <code>builder/core/tests.rs</code>.</p>
     </div>
   </div>
 </section>
@@ -568,21 +510,10 @@ func (c *Config) IsSDM(t uint64) bool {
 <section class="slide">
   <div class="kicker">Activation</div>
   <h2>SDM ships with <span style="color:var(--red)">Lagoon</span></h2>
-  <div class="two-col">
-    <div>
-      <p>The <b>spec</b> says SDM is "gated by the <b>Lagoon</b> activation timestamp" directly. But all three clients on <code>develop</code> still route through the <b>Interop toggle</b>:</p>
-      <pre><span class="a">spec:</span> IsSDM(t) → IsLagoon(t)
-<span class="r">code:</span> IsSDM(t) → IsInterop(t) → IsLagoon(t)</pre>
-      <p style="font-size:16.5px">PR #21105 renamed the Interop hardfork → <b>Lagoon</b>; the Interop <em>toggle</em> was kept separate so the feature can decouple from the fork later. Behaviorally identical today (toggle ⇔ Lagoon).</p>
-    </div>
-    <div>
-      <div class="card amber" style="border-color:rgba(255,180,84,.4)">
-        <h3><span class="pill amber">next</span> Decouple SDM → Lagoon directly (#21129)</h3>
-        <p style="font-size:16.5px">SDM and Interop are unrelated features that merely activate at the same fork today. If anyone ever decouples the Interop toggle from Lagoon, <code>IsSDM</code> would <b>silently follow it to the wrong activation</b> — a latent consensus bug.</p>
-        <p style="font-size:16.5px;margin-bottom:0"><b>Fix:</b> gate SDM on <code>IsLagoon</code> / <code>is_lagoon_active</code> directly across op-node, op-reth, kona. Behavior-preserving today; removes the hazard. <span class="tiny">(still pending on <code>develop</code>)</span></p>
-      </div>
-    </div>
-  </div>
+  <p class="lead">Spec and code now <b>agree</b>: SDM is gated on the <b>Lagoon</b> activation timestamp directly, across all three clients on <code>develop</code>.</p>
+  <pre><span class="a">spec:</span> IsSDM(t) → IsLagoon(t)
+<span class="g">code:</span> IsSDM(t) → IsLagoon(t)   <span class="c">// op-node / op-reth / kona</span></pre>
+  <p style="font-size:16.5px">PR #21105 renamed the Interop hardfork → <b>Lagoon</b>. SDM originally rode the Interop <em>toggle</em>; that indirection is now gone.</p>
 </section>
 
 <!-- 16 TESTS -->
@@ -599,7 +530,7 @@ func (c *Config) IsSDM(t uint64) bool {
       <li>Refund-once per account/slot</li>
       <li>Deposit warms, doesn't claim</li>
       <li><code>0x7D</code> never claims</li>
-      <li>Intrinsic access-list exclusion</li>
+      <li>Intrinsic exclusion: access-list, <b>sender / to / CREATE</b></li>
       <li>Cross-flashblock seeded warmth</li></ul></div>
     <div class="card"><h3>alloy-op-evm <span class="tiny">executor</span></h3><ul class="small">
       <li>Producer→verifier roundtrip, receipt equality</li>
@@ -616,7 +547,6 @@ func (c *Config) IsSDM(t uint64) bool {
       <li>4 <code>build_envelope</code> materialization tests</li>
       <li>Acceptance: disabled-no-refunds, payload/replay match, mixed workload, Interop boundary, flashblocks, isolated-verifier derive</li></ul></div>
   </div>
-  <p class="note" style="margin-top:12px"><b>Known gaps:</b> <span class="hl">no test pins that a tx's own <code>sender</code>/<code>to</code> is excluded from the warm rebate — and today's code doesn't (the intrinsic-warm over-refund bug)</span>; direct parser unit tests for <code>MultiplePostExecTxs</code>/<code>UnexpectedPostExecTx</code>; inspector against <em>real</em> EVM execution (opcode decode, CREATE address, reverted txs); admin-RPC toggle races; extreme-payload &amp; DA-accounting edges. Tracked under #21324.</p>
 </section>
 
 <!-- 17 REPLAY TOOLING -->
@@ -630,7 +560,7 @@ func (c *Config) IsSDM(t uint64) bool {
       <p style="font-size:15.5px;color:var(--muted);margin-bottom:0"><b>Cost:</b> O(block × state), no per-call cap; <code>Semaphore(3)</code> caps concurrency. Hardening (admin namespace + auth + ceilings) is a pre-canary item.</p>
     </div>
     <div class="card">
-      <h3><code>sdmreplay</code> <span class="pill blue">Go CLI</span></h3>
+      <h3><code>sdm-devnet</code> <span class="pill blue">Go CLI</span></h3>
       <p style="font-size:16.5px">Drives the RPC across a block range, emits JSONL (<code>run_config</code> / <code>block</code> / <code>tx</code> / <code>mismatch</code> / <code>summary</code>).</p>
       <p style="font-size:16px"><code>--fail-on-mismatch</code> → non-zero exit, so it runs as a <b>CI gate or cron monitor</b>.</p>
       <p style="font-size:15px;color:var(--muted);margin-bottom:0">Detects: duplicate/out-of-range index, deposit/self target, refund&gt;gas, payload≠replay, receipt <code>opGasRefund</code>≠replay.</p>
@@ -669,50 +599,41 @@ func (c *Config) IsSDM(t uint64) bool {
 <!-- 18 ROADMAP -->
 <section class="slide">
   <div class="kicker">What's next</div>
-  <h2>Roadmap to production — ~3.8 EM, 2–3 months</h2>
+  <h2>Roadmap to production — 2–3 months</h2>
+  <h3 style="color:var(--blue);font-size:20px">Rollout &amp; adoption</h3>
   <div class="two-col">
     <div>
-      <h3 style="color:var(--red);font-size:20px">M1 · Hardening &amp; hardfork prep <span class="tiny">~1.75 EM</span></h3>
-      <ul class="small">
-        <li><b>#97</b> Configurable rebate policies — the gap to the <em>custom</em>-formula DoD (drop the deterministic-recalc check, generalize the policy path)</li>
-        <li><b>#21129/#21360</b> Lagoon-gate decoupling &amp; flag coherence (op-reth/op-node/kona-node + hot-toggle)</li>
-        <li><b>#21324</b> Test hardening — ETH-supply conservation, underflow path, mid-block/out-of-order <code>0x7D</code> rejection, <span class="hl"><code>sender</code>/<code>to</code> intrinsic-warm over-refund</span></li>
-        <li><b>#102</b> Threat model with EVM Safety</li>
-      </ul>
-    </div>
-    <div>
-      <h3 style="color:var(--blue);font-size:20px">M2 · Rollout &amp; adoption <span class="tiny">~2.05 EM</span></h3>
       <ul class="small">
         <li><b>#21273</b> Devnet, benchmarks &amp; Unichain production activation <span class="muted">(wall-clock long pole)</span></li>
         <li><b>#21110</b> Ecosystem — blockscout <code>0x7D</code> support, outreach to explorers</li>
+        <li><b>Premium migration</b> — move the SDM sequencing code into <code>optimism-premium</code></li>
+      </ul>
+    </div>
+    <div>
+      <ul class="small">
         <li><b>#105</b> Subblocks integration <span class="muted">(gated on subblocks in prod)</span></li>
-        <li><b>#21325</b> Tech talk / comms <span class="muted">(this deck 🙂)</span></li>
       </ul>
     </div>
   </div>
-  <div class="card red" style="margin-top:16px">
-    <p style="margin:0;font-size:16.5px"><b>Pre-canary must-dos:</b> Lagoon absolute prestate regen for fault proofs · <code>debug_replaySDMBlock</code> hardening · production observability (refund volume / follower-mismatch dashboards). Stage plan: <b>devnet → testnet canary (≥2 wks, <code>sdmreplay --fail-on-mismatch</code> running) → mainnet via Lagoon timestamp.</b></p>
+</section>
+
+<!-- SHOT: BLOCKSCOUT -->
+<section class="slide">
+  <div class="kicker">See it — Blockscout</div>
+  <h2>An SDM block in the explorer</h2>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0">
+    <img src="block.png" alt="Blockscout Block #148 with a trailing Post exec (0x7D) transaction" style="max-width:100%;max-height:66vh;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.45)">
+    <p class="note" style="margin-top:16px;max-width:1050px;text-align:center;font-style:normal">Block&nbsp;#148 on a kupcake devnet. The transaction list opens with the <b>L1 attributes</b> tx and ends with a green <b>“Post exec tx”</b> — the <code>0x7D</code>, <code>from 0x00…0000</code>, value&nbsp;0, fee&nbsp;0 — carrying the block's refunds as the last transaction, exactly as designed.</p>
   </div>
 </section>
 
-<!-- 19 TAKEAWAYS -->
-<section class="slide center">
-  <div class="title-wrap">
-    <div class="kicker">Takeaways</div>
-    <h1 style="font-size:42px">Five things to remember</h1>
-    <ul style="margin-top:24px">
-      <li style="font-size:22px"><b>SDM rebates cross-tx warm-state access</b> within a block — the EIP-2929 cold→warm differential the EVM never reclaims.</li>
-      <li style="font-size:22px"><b>PostExec is the mechanism, SDM is the feature.</b> A generic <code>0x7D</code> envelope; SDM is its first consumer.</li>
-      <li style="font-size:22px"><b>Consensus applies <em>claimed</em> refunds, doesn't re-derive them</b> — replay is an off-chain sanity check. This enables configurable policies.</li>
-      <li style="font-size:22px"><b>Code-complete on <code>develop</code></b> across the whole stack; four consensus-correctness fixes just landed — one open: the <code>sender</code>/<code>to</code> intrinsic-warm over-refund.</li>
-      <li style="font-size:22px"><b>Ships with Lagoon</b> — remaining work is configurable policy, hardfork-gate decoupling, test hardening, and the devnet→canary→mainnet rollout.</li>
-    </ul>
-    <div class="meta" style="margin-top:34px">
-      <span><b>Spec</b> specs/protocol/lagoon/{post-exec,sdm}.md</span>
-      <span><b>Design doc</b> design-docs/protocol/sdm.md</span>
-      <span><b>Onboarding</b> ~/sdm-docs/2026-04-20/SDM_ONBOARDING.md</span>
-      <span><b>Review</b> 2026-06-10-sdm-postexec-develop-review.md</span>
-    </div>
+<!-- SHOT: GRAFANA -->
+<section class="slide">
+  <div class="kicker">See it — Grafana</div>
+  <h2>The “SDM Overview” dashboard</h2>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0">
+    <img src="sdm-dashboard.png" alt="Grafana SDM Overview dashboard on a kupcake devnet" style="max-width:100%;max-height:66vh;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.45)">
+    <p class="note" style="margin-top:16px;max-width:1150px;text-align:center;font-style:normal">Ships with kupcake. <b>Total refund gas</b>, post-exec <b>executions vs validations</b> (producer vs verifier), op-rbuilder opt-in, <code>admin_sdmStatus</code> / <code>debug_replaySDMBlock</code> call rates, execution &amp; validation latency percentiles, and the op-rbuilder / flashblocks panels.</p>
   </div>
 </section>
 
